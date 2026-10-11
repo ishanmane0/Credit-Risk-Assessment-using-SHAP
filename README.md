@@ -1,233 +1,159 @@
-# Credit Ledger — Explainable Credit Risk Assessment & Underwriting Desk
+# Credit Ledger — Explainable Credit Risk Assessment
 
-[![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Framework](https://img.shields.io/badge/FastAPI-0.115-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Model](https://img.shields.io/badge/XGBoost-3.4.1-EB5424.svg)](https://xgboost.ai/)
-[![Explainability](https://img.shields.io/badge/SHAP-TreeExplainer-brightgreen.svg)](https://shap.readthedocs.io/)
+[![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg)](https://fastapi.tiangolo.com/)
+[![XGBoost](https://img.shields.io/badge/XGBoost-Classifier-EB5424.svg)](https://xgboost.ai/)
+[![SHAP](https://img.shields.io/badge/SHAP-Explainable_AI-brightgreen.svg)](https://shap.readthedocs.io/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-An end-to-end, production-ready machine learning underwriting system and explainable credit scoring service. Built using **XGBoost**, **SHAP (SHapley Additive exPlanations)**, **Scikit-Learn Pipelines**, and **FastAPI**, this project predicts borrower default probabilities while providing transparent, compliant decision attributions for modern retail lending.
+A complete machine learning project for loan default prediction with model explainability (SHAP) and a clean FastAPI underwriting interface.
 
 ---
 
-## Table of Contents
-- [Overview](#overview)
-- [System Architecture](#system-architecture)
-- [Machine Learning Workflow](#machine-learning-workflow)
-- [Model Performance Benchmark](#model-performance-benchmark)
-- [Explainability & SHAP Insights](#explainability--shap-insights)
-- [API & Underwriting Interface](#api--underwriting-interface)
-- [Project Structure](#project-structure)
-- [Quickstart Guide](#quickstart-guide)
-- [API Reference](#api-reference)
-- [Deployment](#deployment)
-- [License](#license)
+## Why I Built This
+
+In credit scoring, accuracy alone isn't enough. If a lending model denies an applicant, regulations (like FCRA and ECOA) and basic customer trust require lenders to explain **why**. 
+
+Traditional credit scoring often falls into one of two traps:
+1. **Simple linear models** (like Logistic Regression) are easy to explain, but miss complex nonlinear relationships and underperform on edge cases.
+2. **Complex ensembles** (like XGBoost or LightGBM) yield high predictive accuracy, but act like black boxes.
+
+This project bridges that gap. I built an end-to-end pipeline that takes raw applicant data, cleans and validates it without data leakage, trains and tunes a calibrated XGBoost classifier, uses **SHAP** to explain predictions both globally across the portfolio and locally for individual applicants, and serves the model through a real-time **FastAPI** web interface.
 
 ---
 
-## Overview
+## Project Highlights & Results
 
-Traditional credit scoring models often face a trade-off: interpretable linear models lack nonlinear predictive power, while complex ensembles function as black boxes. In regulated lending environments (governed by frameworks such as the Fair Credit Reporting Act and GDPR), adverse action notices require explainability for any credit denial.
-
-This project delivers:
-- **Calibrated Default Predictions**: Estimating true risk probability rather than uncalibrated confidence scores.
-- **Decision Threshold Optimization**: Precision-Recall boundary tuning to maximize F1 score and minimize costly False Negatives.
-- **Compliant Explainability**: Global feature importance and individual loan waterfall plots with SHAP.
-- **Production Underwriting API**: High-throughput FastAPI service with full Pydantic data validation and an interactive frontend underwriting desk.
-
----
-
-## System Architecture
-
-```mermaid
-flowchart TD
-    subgraph DataPipeline["Data Ingestion & Cleaning"]
-        CSV["credit_risk_dataset.csv"] --> Val["Data Validation & Outlier Removal"]
-        Val --> Split["Stratified Train/Test Split (80/20)"]
-    end
-
-    subgraph FeatureEngineering["Feature Engineering & Preprocessing"]
-        Split --> Trans["ColumnTransformer Pipeline"]
-        Trans --> ImputeNum["Numerical Imputation (Median)"]
-        Trans --> ImputeCat["Categorical One-Hot Encoding"]
-    end
-
-    subgraph Modeling["Model Training & Tuning"]
-        ImputeNum & ImputeCat --> HP["RandomizedSearchCV (5-Fold CV)"]
-        HP --> XGB["XGBoost Classifier"]
-        XGB --> Calib["Probability Calibration (Sigmoid)"]
-        Calib --> Thresh["Optimal F1 Threshold Tuning"]
-    end
-
-    subgraph Explainability["Interpretability Engine"]
-        XGB --> TreeSHAP["SHAP TreeExplainer"]
-        TreeSHAP --> GlobalP["Global Feature Importance"]
-        TreeSHAP --> LocalP["Applicant Waterfall Explanations"]
-    end
-
-    subgraph Production["Production Serving"]
-        Calib & Thresh --> Artifacts["Serialized Artifacts (.pkl)"]
-        Artifacts --> FastAPI["FastAPI Scoring Engine"]
-        FastAPI --> WebUI["Interactive Underwriting Desk UI"]
-        FastAPI --> REST["REST API (/predict, /health)"]
-    end
-```
+- **Solid Accuracy Jump**: Moving from a Logistic Regression baseline to a tuned XGBoost model pushed accuracy from **82% to 92%**.
+- **Fewer False Alarms (Precision +44.6%)**: Precision jumped from **56% to 81%**, dramatically reducing the number of creditworthy applicants incorrectly rejected.
+- **Strong Default Capture (Recall 81%)**: Captured 81% of actual defaulters on an unseen holdout set of 6,305 applicants.
+- **Tuned Decision Threshold**: Instead of sticking with the arbitrary default cutoff of `0.5`, I tuned the decision threshold to **`0.695`** by analyzing the Precision-Recall curve to optimize the F1-score.
+- **Calibrated Probabilities**: Applied Platt scaling (`CalibratedClassifierCV`) so that a predicted 30% default risk truly corresponds to ~30% empirical historical default frequency.
+- **Full Explainability**: TreeSHAP feature attribution uncovers both overall portfolio risk drivers and individual waterfall charts for loan officers.
 
 ---
 
-## Machine Learning Workflow
+## Performance Comparison
 
-The end-to-end data science lifecycle is contained in the clean, executable notebook [`Credit_Risk.ipynb`](file:///d:/thetis%20trading%20bot/cognitive%20platform/Credit-Risk-Assesment-using-SHAP/Credit_Risk.ipynb):
+Evaluated on an 80/20 stratified holdout test set (6,305 applicants):
 
-1. **Data Ingestion & Integrity Auditing**:
-   - Filter age entry errors ($18 \le \text{age} \le 100$).
-   - Remove tenure anomalies ($\text{employment length} < \text{age}$ and $\le 60\text{ years}$).
-   - Enforce positive income and loan principal constraints.
-   - Eliminate duplicated applicant records.
+| Model | Accuracy | Precision | Recall | F1 Score | 5-Fold CV ROC-AUC |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| Baseline (Logistic Regression) | 82.0% | 56.0% | 79.0% | 0.65 | 0.871 |
+| **XGBoost (Tuned & Calibrated)** | **92.0%** | **81.0%** | **81.0%** | **0.81** | **0.939** |
 
-2. **Dual-Model Pipeline Architecture**:
-   - **Logistic Regression Preprocessor**: Median imputation followed by `StandardScaler` for numeric columns, alongside `OneHotEncoder` for categoricals.
-   - **XGBoost Preprocessor**: Scale-invariant median imputation and categorical one-hot encoding without artificial monotonic transformations.
-
-3. **Handling Class Imbalance**:
-   - Calculates dynamic `scale_pos_weight` ($\frac{\text{Non-Defaults}}{\text{Defaults}}$) directly from the training split to avoid majority-class bias.
-
-4. **Hyperparameter Optimization**:
-   - 5-fold Stratified Cross-Validation using `RandomizedSearchCV` across `n_estimators`, `max_depth`, `learning_rate`, `subsample`, `colsample_bytree`, and regularization `gamma`.
-
-5. **Decision Threshold Optimization**:
-   - Replaces the naive 0.5 threshold by evaluating Precision-Recall curves to identify the operating point that maximizes the harmonic mean ($F_1$ score).
-
-6. **Probability Calibration**:
-   - Diagnoses model reliability using calibration curves and applies Platt scaling (`CalibratedClassifierCV`) so predicted scores reflect empirical default frequencies.
-
-7. **Explainability with SHAP (SHapley Additive exPlanations)**:
-   - Computes global Shapley values across test observations.
-   - Generates local waterfall plots identifying the specific drivers pushing individual applications into High vs. Low risk categories.
+### Confusion Matrix on Test Set:
+- **True Negatives**: 4,685 (correctly approved safe borrowers)
+- **True Positives**: 1,106 (correctly flagged defaults)
+- **False Positives**: 258 (safe applicants wrongly flagged risky — down from 840+ in baseline)
+- **False Negatives**: 256 (missed defaults)
 
 ---
 
-## Model Performance Benchmark
+## How It Works
 
-Both models were cross-validated and tested on an identical unseen stratified holdout split:
+### 1. Data Cleaning & Sanity Checks
+The dataset contains 32,581 loan records across 12 features. Real-world lending data always has anomalies, so I filtered:
+- Impossible ages (e.g., records showing age 144)
+- Employment lengths greater than applicant age or > 60 years
+- Non-positive incomes and loan amounts
+- Duplicate applicant entries (165 records)
 
-| Model | Preprocessing | Accuracy | Precision | Recall | F1 Score |
-| :--- | :--- | :---: | :---: | :---: | :---: |
-| **Logistic Regression (Baseline)** | Imputation + StandardScaler + OHE | 0.82 | 0.56 | 0.79 | 0.65 |
-| **XGBoost (Tuned & Calibrated)** | Imputation + OHE + ScalePosWeight | **0.92** | **0.81** | **0.81** | **0.81** |
+### 2. Handling Class Imbalance
+About **78%** of applicants in the dataset repaid their loans and **22%** defaulted (~3.58 : 1 ratio). Rather than artificially synthesizing samples with SMOTE (which can distort real financial distributions), I calculated a dynamic `scale_pos_weight` and passed it directly to XGBoost to penalize missed defaults during training.
 
-### Key Observations:
-- **Precision Surge**: XGBoost improved precision from **0.56 to 0.81**, drastically reducing false alarms (credit-worthy borrowers erroneously flagged as high risk).
-- **Default Capture Rate**: Maintained a strong **81% recall** on actual defaulters while preserving high overall accuracy (**92%**).
+### 3. Pipeline Architecture
+To prevent any data leakage during cross-validation, all transformations live inside Scikit-learn `Pipeline` and `ColumnTransformer` objects:
+- **Numerical columns**: Median imputation (and `StandardScaler` for Logistic Regression; scale-invariant for XGBoost).
+- **Categorical columns**: Most-frequent imputation + One-Hot Encoding (`handle_unknown='ignore'`).
+
+### 4. Hyperparameter Tuning
+Ran a `RandomizedSearchCV` with 5-fold Stratified K-Fold across tree depth, learning rate, subsample ratio, colsample ratio, and minimum child weight. The best estimator settled at `max_depth=5`, `learning_rate=0.13`, and `n_estimators=366`.
+
+### 5. Probability Calibration
+Raw tree model probabilities can be overconfident or poorly calibrated. I plotted calibration curves and fitted a Sigmoid calibrator (`CalibratedClassifierCV`) so the output scores represent dependable risk probabilities.
+
+### 6. SHAP Interpretability
+- **Global Insights**: The top drivers of default risk across the dataset are `loan_percent_income` (debt-to-income burden), prior defaults on credit bureau file (`cb_person_default_on_file`), assigned `loan_grade`, and interest rates.
+- **Local Waterfall Plots**: For any single loan application, we can generate a waterfall plot showing the exact dollar and percentage contributions pushing their score above or below the baseline threshold.
 
 ---
 
-## Explainability & SHAP Insights
+## The Web App & API
 
-Using `shap.TreeExplainer`, each feature's marginal contribution is quantified:
-
-1. **Loan-to-Income Ratio (`loan_percent_income`)**: Strongest positive predictor of default; debt burdens exceeding ~25-30% of income drastically elevate risk.
-2. **Prior Default History (`cb_person_default_on_file`)**: Historical defaults heavily increase baseline log-odds of default.
-3. **Assigned Loan Grade (`loan_grade`)**: Lower credit grades (D, E, F) exhibit pronounced positive Shapley attribution toward default.
-4. **Loan Interest Rate (`loan_int_rate`)**: Higher interest structures correlate with higher default rates, reflecting underlying borrower credit risk.
-
----
-
-## API & Underwriting Interface
-
-The repository includes a web underwriting console connected to the FastAPI scoring engine:
-
-- **Clean Ledger Interface**: Enter applicant age, income, loan purpose, grade, credit bureau flags, and tenure.
-- **Dynamic Risk Gauge**: Visual indicator showing calibrated probability of default versus the decision threshold.
-- **Underwriting Stamp**: Official verdict badge (`LOW RISK` or `HIGH RISK`).
+I built a lightweight underwriting console using **FastAPI** and vanilla JS/CSS:
+- **Underwriting UI**: Allows loan officers to input applicant details and immediately view the calculated default probability, a visual gauge, and an underwriting verdict (`LOW RISK` / `HIGH RISK`).
+- **Input Validation**: Backed by Pydantic schemas with type enforcement and realistic bounds.
+- **Auto Ratio Calculation**: Dynamically computes loan-to-income ratio as the officer types.
+- **Interactive Docs**: Swagger UI available at `/docs`.
 
 ---
 
 ## Project Structure
 
 ```
-Credit-Risk-Assesment-using-SHAP/
+.
 ├── static/
-│   ├── index.html              # Underwriting desk frontend interface
-│   ├── script.js               # Client-side validation, gauge animations, and API client
-│   └── style.css               # Clean typography and responsive design system
-├── Credit_Risk.ipynb           # Complete ML research, modeling, calibration & SHAP notebook
-├── credit_risk_dataset.csv     # Historical consumer credit and default dataset
-├── credit_risk_model.pkl       # Serialized production pipeline (Calibrated XGBoost)
-├── best_threshold.pkl          # Serialized optimal classification cutoff
-├── main.py                     # FastAPI application serving REST endpoints and static UI
-├── render.yaml                 # Deployment configuration for cloud hosting (Render)
-├── requirements.txt            # Pinned dependencies
-├── runtime.txt                 # Targeted Python runtime
-├── .gitignore                  # Git ignore rules for Python, notebooks, and OS artifacts
-└── README.md                   # Project documentation
+│   ├── index.html              # Underwriting desk interface
+│   ├── script.js               # Form handling, animated gauge, API calls
+│   └── style.css               # Clean styling
+├── Credit_Risk.ipynb           # Complete research notebook (EDA -> Tuning -> SHAP)
+├── credit_risk_dataset.csv     # Historical loan applicant dataset
+├── credit_risk_model.pkl       # Trained & calibrated model pipeline
+├── best_threshold.pkl          # Pickled decision cutoff (0.695)
+├── main.py                     # FastAPI backend
+├── requirements.txt            # Dependencies
+├── runtime.txt                 # Target Python version (3.11.9)
+├── render.yaml                 # One-click Render deployment config
+└── README.md
 ```
 
 ---
 
-## Quickstart Guide
+## Quickstart
 
-### Prerequisites
-- Python **3.10**, **3.11**, or **3.12**
-- Git
-
-### 1. Clone & Navigate
+### 1. Clone the repo
 ```bash
 git clone https://github.com/ishanmane0/Credit-Risk-Assessment-using-SHAP.git
 cd Credit-Risk-Assessment-using-SHAP
 ```
 
-### 2. Set Up Virtual Environment
+### 2. Set up virtual environment
 ```bash
-# macOS/Linux
-python3 -m venv venv
-source venv/bin/activate
-
-# Windows (PowerShell)
 python -m venv venv
-.\venv\Scripts\Activate.ps1
+
+# On Windows:
+.\venv\Scripts\activate
+
+# On macOS/Linux:
+source venv/bin/activate
 ```
 
-### 3. Install Dependencies
+### 3. Install requirements
 ```bash
-pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. Run the Underwriting Service
+### 4. Run the app
 ```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --reload
 ```
-- Open **`http://localhost:8000`** in your browser to access the Underwriting Desk UI.
-- Open **`http://localhost:8000/docs`** to explore the interactive Swagger API documentation.
+Open **`http://localhost:8000`** in your browser to see the underwriting desk, or **`http://localhost:8000/docs`** for the API documentation.
 
-### 5. Run the Research Notebook
+### 5. Open the notebook
+To explore the analysis and SHAP plots:
 ```bash
 jupyter notebook Credit_Risk.ipynb
 ```
 
 ---
 
-## API Reference
+## API Endpoints
 
-### Health Check
-`GET /health`
+- **`GET /health`** — Basic health check and model loading status.
+- **`POST /predict`** — Predict default risk for an applicant.
 
-**Response:**
-```json
-{
-  "status": "healthy",
-  "model_loaded": true,
-  "decision_threshold": 0.6952
-}
-```
-
----
-
-### Predict Loan Default Risk
-`POST /predict`
-
-**Request Body:**
+**Sample Request (`POST /predict`):**
 ```json
 {
   "person_age": 30,
@@ -244,7 +170,7 @@ jupyter notebook Credit_Risk.ipynb
 }
 ```
 
-**Response:**
+**Sample Response:**
 ```json
 {
   "default_probability": 0.1245,
@@ -256,23 +182,6 @@ jupyter notebook Credit_Risk.ipynb
 
 ---
 
-## Deployment
-
-The project contains a pre-configured [`render.yaml`](file:///d:/thetis%20trading%20bot/cognitive%20platform/Credit-Risk-Assesment-using-SHAP/render.yaml) file for one-click deployment on Render:
-
-```yaml
-services:
-  - type: web
-    name: credit-ledger
-    runtime: python
-    plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
-    autoDeploy: true
-```
-
----
-
 ## License
 
-This project is licensed under the MIT License.
+MIT
